@@ -1,8 +1,17 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Globalization;
 using System.Linq;
-using System.Threading.Tasks;
 using Audit.Core;
 using Audit.MongoDB.Providers;
+using Audit.SqlServer;
+using Audit.SqlServer.Providers;
+using Dapper;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 
 namespace TestAuditNet
@@ -18,49 +27,101 @@ namespace TestAuditNet
                 Collection = "Event"
             };
 
-            Configuration.DataProvider = mongoDataProvider;
-            
-            //Configuration.Setup().UseMongoDB(config => config.ConnectionString("mongodb://localhost:27017")
-            //    .Database("Teste")
-            //    .Collection("Event"));
+            var sqlDataProvider = new SqlDataProvider()
+            {
+                ConnectionString = "data source=localhost;initial catalog=Auditoria;integrated security=true;",
+                Schema = "dbo",
+                TableName = "Event",
+                IdColumnName = "EventId",
+                JsonColumnName = "JsonData",
+                LastUpdatedDateColumnName = "LastUpdatedDate",
+                CustomColumns = new List<CustomColumn>()
+                {
+                    new CustomColumn("EventType", ev => ev.EventType),
+                    new CustomColumn("User", ev => ev.Environment.UserName)
+                }
+            };
+
+            Configuration.DataProvider = sqlDataProvider;
+
             Console.WriteLine("Start");
-
-            var client = new MongoClient("mongodb://localhost:27017");
-            var database = client.GetDatabase("Teste");
-            var collection = database.GetCollection<Order>("Event");
-
-            //var order1 = new Order(4, "Jack");
-            //collection.InsertOne(order1);
-
-            //var mongoDataProvider = MongoDataProvider;
-            
-            var test = mongoDataProvider.QueryEvents()
-                .Where(ev => ev.Comments.Contains("Salvar a ordem2"))
-                .OrderByDescending(ev => ev.Duration)
-                .Take(10).ToList();
-
-            //var list = collection.Find(order1).ToList();
-
-            //foreach (var document in list)
-            //{
-            //    Console.WriteLine(document["Name"]);
-            //}
 
             var order = new Order
             {
                 Status = EnumStatus.Start
             };
 
-            using (var audit = AuditScope.Create("Order:Update", () => order, new { UserName = "Willian" }))
+            //Console.WriteLine(DateTime.Now.ToString());
+
+            var i = 0;
+            //while (i < 10000)
+            //{
+            //    using (var audit = AuditScope.Create("Order:Update", () => order, new { Perfil = "Willian", Configuration = "192.168.1.1" }))
+            //    {
+            //        audit.Event.StartDate = DateTime.Now;
+            //        order.Status = EnumStatus.Finish;
+
+            //        audit.Event.CustomFields["ReferenceId"] = 111;
+            //        audit.Event.StartDate = DateTime.Now;
+
+            //        audit.Comment("Salvar a ordem1");
+            //        audit.Event.EndDate = DateTime.Now;
+            //    }
+            //    i++;
+            //}
+
+            var startTime = DateTime.Now;
+            using (var conexao = new SqlConnection("data source=localhost;initial catalog=Auditoria;integrated security=true;"))
             {
-                Console.WriteLine("Audit");
-                order.Status = EnumStatus.Finish;
-
-                audit.Event.CustomFields["ReferenceId"] = 111;
-
-                audit.Comment("Salvar a ordem1");
-                audit.Comment("Salvar a ordem2");
+                var test = conexao.Query<dynamic>("SELECT * FROM Event WHERE JsonData Like '%2019-10-28T16:16:28.8080376-04:00%'");
+                if (test.Any())
+                    Console.WriteLine("Achou no SQL");
             }
+
+            var endTime = DateTime.Now;
+
+            Console.WriteLine("SQL = " + endTime.Subtract(startTime).TotalMilliseconds + " ms");
+            //Console.WriteLine("Terminado o SQL");
+
+            // ----------------------------- Mongo ----------------------------------------
+            Configuration.DataProvider = mongoDataProvider;
+
+            //Console.WriteLine(DateTime.Now.ToString());
+            i = 0;
+            //while (i < 10000)
+            //{
+            //    using (var audit = AuditScope.Create("Order:Update", () => order, new { Perfil = "Willian", Configuration = "192.168.1.1" }))
+            //    {
+            //        audit.Event.StartDate = DateTime.Now;
+            //        order.Status = EnumStatus.Finish;
+
+            //        audit.Event.CustomFields["ReferenceId"] = 111;
+            //        audit.Event.StartDate = DateTime.Now;
+
+            //        audit.Comment("Salvar a ordem1");
+            //        audit.Event.EndDate = DateTime.Now;
+            //    }
+            //    i++;
+            //}
+
+            var client = new MongoClient("mongodb://localhost:27017");
+            var database = client.GetDatabase("Audit");
+            var collection = database.GetCollection<EventMongo>("Event");
+
+            startTime = DateTime.Now;
+
+            var query = Builders<EventMongo>.Filter.Regex("StartDate", new BsonRegularExpression("2019-10-28T20:16:33.472+00:00"));
+            var list = collection.Find(x => x.StartDate == DateTime.Parse("2019-10-28T20:16:35.568+00:00")).ToList();
+
+            foreach (var document in list)
+            {
+                Console.WriteLine("Achou no Mongo");
+            }
+            endTime = DateTime.Now;
+            Console.WriteLine("Mongo = " + endTime.Subtract(startTime).TotalMilliseconds + " ms");
+
+            //Console.WriteLine("Terminado o Mongo");
+            //Console.WriteLine(DateTime.Now.ToString());
 
             //AuditScope auditScope = null;
             //try
@@ -109,5 +170,70 @@ namespace TestAuditNet
         Init = 0,
         Start = 1,
         Finish = 2
+    }
+
+    public class Event
+    {
+        public int _id { get; set; }
+        public string JsonData { get; set; }
+    }
+
+    [BsonIgnoreExtraElements]
+    public class EventMongo
+    {
+        //[BsonElement("_id")]
+        //[BsonSerializer(typeof(BsonStringNumericSerializer))]
+        public ObjectId _id { get; set; }
+        public string EventType { get; set; }
+        public object Environment { get; set; }
+        public object Target { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public int Duration { get; set; }
+        public string Perfil { get; set; }
+        public string Configuration { get; set; }
+        public int ReferenceId { get; set; }
+    }
+
+    public class BsonStringNumericSerializer : SerializerBase<string>
+    {
+        public override string Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
+        {
+            var bsonType = context.Reader.CurrentBsonType;
+            switch (bsonType)
+            {
+                case BsonType.Null:
+                    context.Reader.ReadNull();
+                    return null;
+                case BsonType.String:
+                    return context.Reader.ReadString();
+                case BsonType.ObjectId:
+                    return context.Reader.ReadString();
+                case BsonType.Int32:
+                    return context.Reader.ReadInt32().ToString(CultureInfo.InvariantCulture);
+                default:
+                    var message = string.Format($"Custom Cannot deserialize BsonString or BsonInt32 from BsonType {bsonType}");
+                    throw new BsonSerializationException(message);
+            }
+        }
+
+        public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, string value)
+        {
+            if (value != null)
+            {
+                if (int.TryParse(value, out var result))
+                {
+                    context.Writer.WriteInt32(result);
+                }
+                else
+                {
+                    context.Writer.WriteString(value);
+                }
+            }
+            else
+            {
+                context.Writer.WriteNull();
+            }
+        }
     }
 }
