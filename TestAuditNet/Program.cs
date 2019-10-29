@@ -1,24 +1,21 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data.SqlClient;
-using System.Globalization;
-using System.Linq;
-using Audit.Core;
+﻿using Audit.Core;
 using Audit.MongoDB.Providers;
 using Audit.SqlServer;
 using Audit.SqlServer.Providers;
 using Dapper;
 using MongoDB.Bson;
-using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
-using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
 
 namespace TestAuditNet
 {
-    class Program
+    internal class Program
     {
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
             var mongoDataProvider = new MongoDataProvider()
             {
@@ -51,9 +48,7 @@ namespace TestAuditNet
                 Status = EnumStatus.Start
             };
 
-            //Console.WriteLine(DateTime.Now.ToString());
-
-            var i = 0;
+            //var i = 0;
             //while (i < 10000)
             //{
             //    using (var audit = AuditScope.Create("Order:Update", () => order, new { Perfil = "Willian", Configuration = "192.168.1.1" }))
@@ -81,13 +76,11 @@ namespace TestAuditNet
             var endTime = DateTime.Now;
 
             Console.WriteLine("SQL = " + endTime.Subtract(startTime).TotalMilliseconds + " ms");
-            //Console.WriteLine("Terminado o SQL");
 
             // ----------------------------- Mongo ----------------------------------------
             Configuration.DataProvider = mongoDataProvider;
 
-            //Console.WriteLine(DateTime.Now.ToString());
-            i = 0;
+            //i = 0;
             //while (i < 10000)
             //{
             //    using (var audit = AuditScope.Create("Order:Update", () => order, new { Perfil = "Willian", Configuration = "192.168.1.1" }))
@@ -110,18 +103,16 @@ namespace TestAuditNet
 
             startTime = DateTime.Now;
 
-            var query = Builders<EventMongo>.Filter.Regex("StartDate", new BsonRegularExpression("2019-10-28T20:16:33.472+00:00"));
-            var list = collection.Find(x => x.StartDate == DateTime.Parse("2019-10-28T20:16:35.568+00:00")).ToList();
+            var query = Builders<EventMongo>.Filter.Eq("StartDate", "2019-10-28T20:16:35.568+00:00");
+            var list = collection.Find(query).ToList();
 
             foreach (var document in list)
             {
                 Console.WriteLine("Achou no Mongo");
             }
+
             endTime = DateTime.Now;
             Console.WriteLine("Mongo = " + endTime.Subtract(startTime).TotalMilliseconds + " ms");
-
-            //Console.WriteLine("Terminado o Mongo");
-            //Console.WriteLine(DateTime.Now.ToString());
 
             //AuditScope auditScope = null;
             //try
@@ -181,8 +172,6 @@ namespace TestAuditNet
     [BsonIgnoreExtraElements]
     public class EventMongo
     {
-        //[BsonElement("_id")]
-        //[BsonSerializer(typeof(BsonStringNumericSerializer))]
         public ObjectId _id { get; set; }
         public string EventType { get; set; }
         public object Environment { get; set; }
@@ -193,47 +182,5 @@ namespace TestAuditNet
         public string Perfil { get; set; }
         public string Configuration { get; set; }
         public int ReferenceId { get; set; }
-    }
-
-    public class BsonStringNumericSerializer : SerializerBase<string>
-    {
-        public override string Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
-        {
-            var bsonType = context.Reader.CurrentBsonType;
-            switch (bsonType)
-            {
-                case BsonType.Null:
-                    context.Reader.ReadNull();
-                    return null;
-                case BsonType.String:
-                    return context.Reader.ReadString();
-                case BsonType.ObjectId:
-                    return context.Reader.ReadString();
-                case BsonType.Int32:
-                    return context.Reader.ReadInt32().ToString(CultureInfo.InvariantCulture);
-                default:
-                    var message = string.Format($"Custom Cannot deserialize BsonString or BsonInt32 from BsonType {bsonType}");
-                    throw new BsonSerializationException(message);
-            }
-        }
-
-        public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, string value)
-        {
-            if (value != null)
-            {
-                if (int.TryParse(value, out var result))
-                {
-                    context.Writer.WriteInt32(result);
-                }
-                else
-                {
-                    context.Writer.WriteString(value);
-                }
-            }
-            else
-            {
-                context.Writer.WriteNull();
-            }
-        }
     }
 }
